@@ -24,8 +24,8 @@ def can_assign(allowed, givers, receivers, assignment) -> bool:
     return False
 
 def exists_valid(user_ids: List[int], exclusions) -> Tuple[bool, str]:
-    if len(user_ids) < 3:
-        return False, "Se necesitan al menos 3 participantes."
+    if len(user_ids) < 2:
+        return False, "Se necesitan al menos 2 participantes."
     allowed = get_allowed(user_ids, exclusions)
     for uid, opts in allowed.items():
         if not opts:
@@ -38,7 +38,7 @@ def exists_valid(user_ids: List[int], exclusions) -> Tuple[bool, str]:
 
 def generate_assignment(user_ids: List[int], exclusions) -> Optional[Dict[int, int]]:
     allowed = get_allowed(user_ids, exclusions)
-    for _ in range(30):
+    for _ in range(50):
         givers = list(user_ids)
         random.shuffle(givers)
         assignment = {}
