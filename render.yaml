@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: amigo-invisible
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
