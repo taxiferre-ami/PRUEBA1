@@ -16,7 +16,7 @@
     button.sec { background:#666; }
     .hidden { display:none !important; }
     .item { padding:10px 0; border-bottom:1px solid #eee; }
-    .alias { font-weight:600; color:var(--pd); cursor:pointer; }
+    .alias { font-weight:600; color:var(--pd); }
     .error { background:#ffebee; color:#c62828; padding:10px; border-radius:8px; }
     .success { background:#e8f5e9; color:#2e7d32; padding:10px; border-radius:8px; }
   </style>
@@ -53,9 +53,19 @@
           <p>Código: <strong id="ev-code"></strong> · Estado: <span id="ev-status"></span></p>
           <button class="sec" onclick="back()">← Volver</button>
         </div>
-        <div class="card"><h3>Participantes</h3><div id="parts-list"></div></div>
+        <div class="card">
+          <h3>Participantes</h3>
+          <div id="parts-list"></div>
+        </div>
         <div id="creator-tools" class="card hidden">
-          <h3>Herramientas del creador</h3>
+          <h3>Restricciones (solo creador)</h3>
+          <p>Selecciona quién no puede regalar a quién:</p>
+          <select id="excl-giver"></select>
+          <select id="excl-receiver"></select>
+          <label><input type="checkbox" id="excl-mutual"> Mutua</label>
+          <button onclick="addExclusion()">Añadir restricción</button>
+          <div id="excl-list"></div>
+          <hr>
           <button onclick="validateEv()">Comprobar si se puede sortear</button>
           <div id="val-result"></div>
           <button id="btn-draw" class="hidden" onclick="doDraw()">¡Sortear!</button>
@@ -73,7 +83,9 @@ let token = localStorage.getItem('token');
 let isRegister = false;
 let currentEvent = null;
 const BASE_URL = window.location.origin;
+
 function msg(el, text, err=false) { document.getElementById(el).innerHTML = `<div class="\( {err?'error':'success'}"> \){text}</div>`; }
+
 async function api(path, opts={}) {
   const headers = {'Content-Type':'application/json', ...opts.headers};
   if (token) headers.Authorization = 'Bearer ' + token;
@@ -82,7 +94,9 @@ async function api(path, opts={}) {
   if (!r.ok) throw new Error(data.detail || 'Error');
   return data;
 }
+
 function toggleReg() { isRegister = !isRegister; document.getElementById('reg-extra').classList.toggle('hidden', !isRegister); document.getElementById('auth-title').textContent = isRegister ? 'Registrarse' : 'Entrar'; }
+
 async function doAuth() {
   const phone = document.getElementById('phone').value.trim();
   const password = document.getElementById('password').value;
@@ -101,7 +115,9 @@ async function doAuth() {
     token = data.access_token; localStorage.setItem('token', token); showApp();
   } catch(e) { msg('auth-msg', e.message, true); }
 }
+
 function logout() { token = null; localStorage.removeItem('token'); document.getElementById('app').classList.add('hidden'); document.getElementById('auth').classList.remove('hidden'); }
+
 async function showApp() {
   document.getElementById('auth').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
   const me = await api('/me');
@@ -109,32 +125,65 @@ async function showApp() {
   document.getElementById('alias').value = me.alias || ''; document.getElementById('needs').value = me.needs || '';
   loadEvents();
 }
+
 async function saveProfile() {
   const alias = document.getElementById('alias').value.trim(); const needs = document.getElementById('needs').value.trim();
   if (!alias) return alert('El Alias es obligatorio');
   await api('/me', {method:'PUT', body:JSON.stringify({alias, needs})}); alert('Perfil guardado'); showApp();
 }
+
 async function loadEvents() {
   const events = await api('/events');
   document.getElementById('events-list').innerHTML = events.map(e => `<div class="item"><strong>\( {e.name}</strong> ( \){e.participants_count}) · ${e.status}<br><small>Código: \( {e.code}</small><button onclick="openEvent( \){e.id})">Abrir</button></div>`).join('') || '<p>No tienes eventos aún.</p>';
 }
+
 function showCreate() { const name = prompt('Nombre del evento:'); if (!name) return; api('/events', {method:'POST', body:JSON.stringify({name})}).then(r => { alert('Evento creado. Código: ' + r.code); loadEvents(); }).catch(e => alert(e.message)); }
 function showJoin() { const code = prompt('Código del evento:'); if (!code) return; api('/events/join', {method:'POST', body:JSON.stringify({code})}).then(() => { alert('Unido'); loadEvents(); }).catch(e => alert(e.message)); }
+
 async function openEvent(id) {
   currentEvent = await api('/events/' + id);
   document.getElementById('ev-name').textContent = currentEvent.name;
   document.getElementById('ev-code').textContent = currentEvent.code;
   document.getElementById('ev-status').textContent = currentEvent.status;
-  document.getElementById('parts-list').innerHTML = currentEvent.participants.map(p => `<div class="item"><span class="alias" onclick="alert('Lo que necesita \( {p.alias}:\\n\\n' + (p.needs || 'No ha escrito nada'))"> \){p.alias}</span>${currentEvent.is_creator && p.phone ? '<br><small>'+p.phone+'</small>' : ''}</div>`).join('');
+  document.getElementById('parts-list').innerHTML = currentEvent.participants.map(p => 
+    `<div class="item"><span class="alias">\( {p.alias}</span><br><small> \){p.needs || 'No ha escrito nada'}</small></div>`
+  ).join('') || '<p>Nadie se ha unido aún.</p>';
+
+  if (currentEvent.is_creator && currentEvent.status === 'preparando') {
+    const selG = document.getElementById('excl-giver');
+    const selR = document.getElementById('excl-receiver');
+    selG.innerHTML = selR.innerHTML = currentEvent.participants.map(p => `<option value="\( {p.id}"> \){p.alias}</option>`).join('');
+    document.getElementById('excl-list').innerHTML = (currentEvent.exclusions || []).map(e => {
+      const g = currentEvent.participants.find(p => p.id === e.giver_id)?.alias || e.giver_id;
+      const r = currentEvent.participants.find(p => p.id === e.receiver_id)?.alias || e.receiver_id;
+      return `<div class="item">${g} no regala a \( {r} \){e.mutual ? ' (mutua)' : ''}</div>`;
+    }).join('') || '<p>Sin restricciones.</p>';
+  }
+
   document.getElementById('creator-tools').classList.toggle('hidden', !currentEvent.is_creator || currentEvent.status !== 'preparando');
   document.getElementById('send-links').classList.toggle('hidden', !currentEvent.is_creator || currentEvent.status !== 'sorteado');
   document.getElementById('event-detail').classList.remove('hidden');
   document.querySelector('#app > .card:nth-child(3)').classList.add('hidden');
+
   if (currentEvent.status === 'sorteado') {
-    try { const ass = await api('/events/' + id + '/my-assignment'); document.getElementById('my-result').classList.remove('hidden'); document.getElementById('my-result').innerHTML = `<h3>Tu asignación</h3><p>Te ha tocado: <strong>${ass.receiver_alias}</strong></p><p>Lo que necesita: ${ass.receiver_needs || 'No ha escrito nada'}</p>`; } catch {}
+    try {
+      const ass = await api('/events/' + id + '/my-assignment');
+      document.getElementById('my-result').classList.remove('hidden');
+      document.getElementById('my-result').innerHTML = `<h3>Tu asignación</h3><p>Te ha tocado: <strong>${ass.receiver_alias}</strong></p><p>Lo que necesita: ${ass.receiver_needs || 'No ha escrito nada'}</p>`;
+    } catch {}
     if (currentEvent.is_creator) loadSendLinks(id);
   }
 }
+
+async function addExclusion() {
+  const giver_id = parseInt(document.getElementById('excl-giver').value);
+  const receiver_id = parseInt(document.getElementById('excl-receiver').value);
+  const mutual = document.getElementById('excl-mutual').checked;
+  if (giver_id === receiver_id) return alert('No puede ser la misma persona');
+  await api('/events/' + currentEvent.id + '/exclusions', {method:'POST', body:JSON.stringify({giver_id, receiver_id, mutual})});
+  openEvent(currentEvent.id);
+}
+
 async function loadSendLinks(id) {
   const list = await api('/events/' + id + '/assignments');
   document.getElementById('send-list').innerHTML = list.map(a => {
@@ -144,9 +193,22 @@ async function loadSendLinks(id) {
     return `<div class="item">${a.giver_alias} → \( {a.receiver_alias}<br><a href=" \){wa}" target="_blank"><button>Enviar por WhatsApp</button></a></div>`;
   }).join('');
 }
+
 function back() { document.getElementById('event-detail').classList.add('hidden'); document.querySelector('#app > .card:nth-child(3)').classList.remove('hidden'); loadEvents(); }
-async function validateEv() { const r = await api('/events/' + currentEvent.id + '/validate', {method:'POST'}); document.getElementById('val-result').innerHTML = `<div class="\( {r.valid?'success':'error'}"> \){r.message}</div>`; if (r.valid) document.getElementById('btn-draw').classList.remove('hidden'); }
-async function doDraw() { if (!confirm('¿Realizar el sorteo?')) return; await api('/events/' + currentEvent.id + '/draw', {method:'POST'}); alert('Sorteo hecho'); openEvent(currentEvent.id); }
+
+async function validateEv() {
+  const r = await api('/events/' + currentEvent.id + '/validate', {method:'POST'});
+  document.getElementById('val-result').innerHTML = `<div class="\( {r.valid?'success':'error'}"> \){r.message}</div>`;
+  if (r.valid) document.getElementById('btn-draw').classList.remove('hidden');
+}
+
+async function doDraw() {
+  if (!confirm('¿Realizar el sorteo?')) return;
+  await api('/events/' + currentEvent.id + '/draw', {method:'POST'});
+  alert('Sorteo hecho');
+  openEvent(currentEvent.id);
+}
+
 if (token) showApp();
 </script>
 </body>
