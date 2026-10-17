@@ -113,13 +113,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 @app.get("/me")
 def me(user: User = Depends(get_current_user)):
-    return {
-        "id": user.id,
-        "full_name": user.full_name,
-        "phone": user.phone,
-        "alias": user.alias,
-        "needs": user.needs
-    }
+    return {"id": user.id, "full_name": user.full_name, "phone": user.phone, "alias": user.alias, "needs": user.needs}
 
 @app.put("/me")
 def update_me(data: ProfileUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -163,14 +157,7 @@ def my_events(user: User = Depends(get_current_user), db: Session = Depends(get_
     result = []
     for p in parts:
         ev = p.event
-        result.append({
-            "id": ev.id,
-            "name": ev.name,
-            "code": ev.code,
-            "status": ev.status.value,
-            "is_creator": ev.creator_id == user.id,
-            "participants_count": len(ev.participants)
-        })
+        result.append({"id": ev.id, "name": ev.name, "code": ev.code, "status": ev.status.value, "is_creator": ev.creator_id == user.id, "participants_count": len(ev.participants)})
     return result
 
 @app.get("/events/{event_id}")
@@ -182,22 +169,8 @@ def get_event(event_id: int, user: User = Depends(get_current_user), db: Session
     participants = []
     for ep in ev.participants:
         u = ep.user
-        participants.append({
-            "id": u.id,
-            "alias": u.alias or u.full_name,
-            "full_name": u.full_name,
-            "needs": u.needs or "",
-            "phone": u.phone if ev.creator_id == user.id else None
-        })
-    return {
-        "id": ev.id,
-        "name": ev.name,
-        "code": ev.code,
-        "status": ev.status.value,
-        "is_creator": ev.creator_id == user.id,
-        "participants": participants,
-        "exclusions": [{"id": e.id, "giver_id": e.giver_id, "receiver_id": e.receiver_id, "mutual": e.mutual} for e in ev.exclusions]
-    }
+        participants.append({"id": u.id, "alias": u.alias or u.full_name, "full_name": u.full_name, "needs": u.needs or "", "phone": u.phone if ev.creator_id == user.id else None})
+    return {"id": ev.id, "name": ev.name, "code": ev.code, "status": ev.status.value, "is_creator": ev.creator_id == user.id, "participants": participants, "exclusions": [{"id": e.id, "giver_id": e.giver_id, "receiver_id": e.receiver_id, "mutual": e.mutual} for e in ev.exclusions]}
 
 @app.post("/events/{event_id}/exclusions")
 def add_exclusion(event_id: int, data: ExclusionIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -237,16 +210,30 @@ def draw(event_id: int, user: User = Depends(get_current_user), db: Session = De
     db.commit()
     return {"message": "Sorteo realizado"}
 
+@app.get("/events/{event_id}/assignments")
+def get_assignments(event_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ev = db.query(Event).filter_by(id=event_id, creator_id=user.id).first()
+    if not ev or ev.status != StatusEnum.drawn:
+        raise HTTPException(403, "Solo el creador puede ver las asignaciones")
+    result = []
+    for ass in ev.assignments:
+        giver = db.query(User).get(ass.giver_id)
+        receiver = db.query(User).get(ass.receiver_id)
+        result.append({
+            "giver_alias": giver.alias or giver.full_name,
+            "giver_phone": giver.phone,
+            "receiver_alias": receiver.alias or receiver.full_name,
+            "private_code": ass.private_code
+        })
+    return result
+
 @app.get("/events/{event_id}/my-assignment")
 def my_assignment(event_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     ass = db.query(Assignment).filter_by(event_id=event_id, giver_id=user.id).first()
     if not ass:
         raise HTTPException(404, "Aún no hay asignación o no participas")
     receiver = db.query(User).get(ass.receiver_id)
-    return {
-        "receiver_alias": receiver.alias or receiver.full_name,
-        "private_code": ass.private_code
-    }
+    return {"receiver_alias": receiver.alias or receiver.full_name, "private_code": ass.private_code, "receiver_needs": receiver.needs or ""}
 
 @app.get("/result/{code}")
 def public_result(code: str, db: Session = Depends(get_db)):
@@ -256,11 +243,7 @@ def public_result(code: str, db: Session = Depends(get_db)):
     giver = db.query(User).get(ass.giver_id)
     receiver = db.query(User).get(ass.receiver_id)
     ev = ass.event
-    return {
-        "your_alias": giver.alias or giver.full_name,
-        "receiver_alias": receiver.alias or receiver.full_name,
-        "event_name": ev.name
-    }
+    return {"your_alias": giver.alias or giver.full_name, "receiver_alias": receiver.alias or receiver.full_name, "receiver_needs": receiver.needs or "", "event_name": ev.name}
 
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
