@@ -10,6 +10,7 @@ COPY frontend /app/frontend
 
 WORKDIR /app/backend
 
-EXPOSE 8000
+# Esto nos muestra qué archivos hay y el contenido de main.py
+RUN ls -la && echo "----- CONTENIDO DE main.py -----" && cat main.py
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
